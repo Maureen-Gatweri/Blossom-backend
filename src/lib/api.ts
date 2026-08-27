@@ -10,9 +10,11 @@ export async function getProducts(category?: string) {
 }
 
 export async function getFeaturedProducts() {
-  const res = await fetch(`${API_URL}/products?featured=true`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch featured products");
-  return res.json();
+  const res = await fetch(`${API_URL}/products`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch products");
+  const all = await res.json();
+  const featured = all.filter((p: any) => p.isFeatured);
+  return featured.length > 0 ? featured : all.slice(0, 8);
 }
 
 export async function getProductById(id: string) {
@@ -30,7 +32,10 @@ export async function createOrder(orderData: any, token: string) {
     },
     body: JSON.stringify(orderData),
   });
-  if (!res.ok) throw new Error("Failed to create order");
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.message || "Failed to create order");
+  }
   return res.json();
 }
 
@@ -57,6 +62,7 @@ export async function checkPaymentStatus(orderId: string, token: string) {
   if (!res.ok) throw new Error("Failed to check payment status");
   return res.json();
 }
+
 export async function registerUser(name: string, email: string, password: string, phone?: string) {
   const res = await fetch(`${API_URL}/users/register`, {
     method: "POST",

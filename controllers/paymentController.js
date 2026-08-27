@@ -1,7 +1,6 @@
 const { initiateSTKPush } = require("../utils/mpesa");
 const Order = require("../models/Order");
 
-// Initiate M-Pesa payment
 const initiatePayment = async (req, res) => {
   try {
     const { phone, orderId } = req.body;
@@ -10,73 +9,77 @@ const initiatePayment = async (req, res) => {
       return res.status(400).json({ message: "Phone number and order ID are required" });
     }
 
+    // Validate phone format
+    const cleanPhone = phone.replace(/\s+/g, "").replace(/^\+/, "");
+    const phoneRegex = /^(254|0)(7|1)\d{8}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      return res.status(400).json({ message: "Invalid phone number. Use format: 07XXXXXXXX or 254XXXXXXXXX" });
+    }
+
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const stkResponse = await initiateSTKPush(phone, order.totalAmount + order.deliveryFee, orderId);
+    if (order.paymentStatus === "paid") {
+      return res.status(400).json({ message: "Order already paid" });
+    }
 
-    // Save the CheckoutRequestID so we can match the callback later
-    order.mpesaCheckoutRequestId = stkResponse.CheckoutRequestID;
+    const amount = order.totalAmount + order.deliveryFee;
+    const stkRes = await initiateSTKPush(phone, amount, orderId);
+
+    order.mpesaCheckoutRequestId = stkRes.CheckoutRequestID;
     await order.save();
 
     res.json({
-      message: "STK push sent! Check your phone to complete payment.",
-      checkoutRequestId: stkResponse.CheckoutRequestID,
-      merchantRequestId: stkResponse.MerchantRequestID,
+      message: "STK push sent! Check your phone.",
+      checkoutRequestId: stkRes.CheckoutRequestID,
+      merchantRequestId: stkRes.MerchantRequestID,
     });
   } catch (error) {
+    console.error("Payment initiation error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };
 
-// M-Pesa callback (Safaricom calls this automatically)
 const mpesaCallback = async (req, res) => {
   try {
     const callbackData = req.body.Body?.stkCallback;
-    console.log("📩 M-Pesa Callback received:", JSON.stringify(callbackData, null, 2));
-
     if (!callbackData) {
-      return res.status(400).json({ message: "Invalid callback data" });
+      return res.status(200).json({ message: "No callback data" });
     }
 
-    const { ResultCode, CheckoutRequestID, CallbackMetadata } = callbackData;
+    const { ResultCode, CheckoutRequestID, CallbackMetadata, ResultDesc } = callbackData;
+    console.log("📩 M-Pesa Callback:", ResultCode, ResultDesc);
 
     const order = await Order.findOne({ mpesaCheckoutRequestId: CheckoutRequestID });
     if (!order) {
-      console.log("⚠️ Order not found for CheckoutRequestID:", CheckoutRequestID);
-      return res.status(200).json({ message: "Order not found, but acknowledged" });
+      return res.status(200).json({ message: "Order not found but acknowledged" });
     }
 
     if (ResultCode === 0) {
-      // Payment successful
-      const items = CallbackMetadata.Item;
-      const receiptItem = items.find((i) => i.Name === "MpesaReceiptNumber");
+      const items = CallbackMetadata?.Item || [];
+      const receipt = items.find((i) => i.Name === "MpesaReceiptNumber");
+      const amount = items.find((i) => i.Name === "Amount");
 
       order.paymentStatus = "paid";
       order.status = "confirmed";
-      order.mpesaReceiptNumber = receiptItem ? receiptItem.Value : "N/A";
-      await order.save();
+      order.mpesaReceiptNumber = receipt?.Value || "N/A";
 
-      console.log("✅ Payment successful for order:", order._id);
+      console.log(`✅ Payment confirmed: ${receipt?.Value} — KSh ${amount?.Value}`);
     } else {
-      // Payment failed or cancelled
       order.paymentStatus = "failed";
-      await order.save();
-
-      console.log("❌ Payment failed for order:", order._id, "Reason:", callbackData.ResultDesc);
+      console.log(`❌ Payment failed: ${ResultDesc}`);
     }
 
-    // Always respond 200 to Safaricom, or they'll keep retrying
+    await order.save();
     res.status(200).json({ message: "Callback received" });
   } catch (error) {
     console.error("Callback error:", error.message);
-    res.status(200).json({ message: "Callback acknowledged with error" });
+    res.status(200).json({ message: "Acknowledged" });
   }
 };
 
-// Check payment status (frontend polls this)
 const checkPaymentStatus = async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId);
@@ -85,7 +88,7 @@ const checkPaymentStatus = async (req, res) => {
     res.json({
       paymentStatus: order.paymentStatus,
       orderStatus: order.status,
-      mpesaReceiptNumber: order.mpesaReceiptNumber,
+      mpesaReceiptNumber: order.mpesaReceiptNumber || null,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
