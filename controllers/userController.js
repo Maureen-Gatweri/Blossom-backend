@@ -1,13 +1,18 @@
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 
-// Register
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
 
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Please fill in all fields" });
+    }
+
     const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: "User already exists" });
+    if (exists) {
+      return res.status(400).json({ message: "User already exists" });
+    }
 
     const user = await User.create({ name, email, password, phone });
 
@@ -19,20 +24,28 @@ const registerUser = async (req, res) => {
       token: generateToken(user._id),
     });
   } catch (error) {
+    console.error("Register error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Login
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({ message: "Please fill in all fields" });
+    }
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ message: "Invalid email or password" });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
 
     const isMatch = await user.matchPassword(password);
-    if (!isMatch) return res.status(401).json({ message: "Invalid email or password" });
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
 
     res.json({
       _id: user._id,
@@ -42,29 +55,37 @@ const loginUser = async (req, res) => {
       token: generateToken(user._id),
     });
   } catch (error) {
+    console.error("Login error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Get profile
 const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// Update profile
 const updateProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
     user.address = req.body.address || user.address;
-    if (req.body.password) user.password = req.body.password;
+    if (req.body.password) {
+      user.password = req.body.password;
+    }
 
     const updated = await user.save();
     res.json({
@@ -79,7 +100,6 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// Get all users (admin)
 const getAllUsers = async (req, res) => {
   try {
     const users = await User.find().select("-password");
@@ -89,4 +109,10 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, loginUser, getProfile, updateProfile, getAllUsers };
+module.exports = {
+  registerUser,
+  loginUser,
+  getProfile,
+  updateProfile,
+  getAllUsers,
+};
