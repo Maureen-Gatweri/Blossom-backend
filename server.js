@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const app = express();
-app.use(cors({ origin: "*" }));
+app.use(cors({ origin: ["http://localhost:3000", "https://blossomwith-lela-frontend.vercel.app"] }));
 app.use(express.json());
 
 mongoose.connect(process.env.MONGO_URI)
